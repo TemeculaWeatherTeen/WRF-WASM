@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>WRF in the browser — Southern California</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="map" aria-label="Forecast map"></div>
+
+<div id="hover" hidden></div>
+
+<section id="panel" aria-label="Forecast controls">
+  <header>
+    <div>
+      <strong>WRF · Southern California</strong>
+      <div id="cycleInfo" class="muted">Loading…</div>
+    </div>
+    <button id="collapse" class="icon" title="Collapse" aria-expanded="true">–</button>
+  </header>
+
+  <div id="body">
+    <div class="row">
+      <label for="field">Value</label>
+      <select id="field"></select>
+    </div>
+    <div class="row" id="levelRow" hidden>
+      <label for="level">Level</label>
+      <select id="level"></select>
+    </div>
+
+    <div class="legend">
+      <div id="legendBar"></div>
+      <div id="legendTicks"></div>
+      <div id="legendUnit" class="muted"></div>
+    </div>
+
+    <div class="timeline">
+      <div id="timeLabel" class="timeLabel">—</div>
+      <input id="frame" type="range" min="0" max="0" value="0" step="1" aria-label="Forecast frame">
+      <div class="transport">
+        <button id="first" class="icon" title="First frame">⏮</button>
+        <button id="prev" class="icon" title="Previous frame (←)">◀</button>
+        <button id="play" class="icon primary" title="Play / pause (space)">▶</button>
+        <button id="next" class="icon" title="Next frame (→)">▶︎|</button>
+        <button id="last" class="icon" title="Last frame">⏭</button>
+        <select id="speed" title="Playback speed">
+          <option value="900">0.5×</option>
+          <option value="450" selected>1×</option>
+          <option value="220">2×</option>
+          <option value="110">4×</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="row two">
+      <label class="check"><input type="checkbox" id="vectors" checked> Wind arrows</label>
+      <label class="check">Units
+        <select id="units"><option value="us">US</option><option value="si">Metric</option></select>
+      </label>
+    </div>
+    <div class="row">
+      <label for="opacity">Opacity</label>
+      <input id="opacity" type="range" min="20" max="100" value="80">
+    </div>
+
+    <details id="runBox" open>
+      <summary>Model run</summary>
+      <div class="row">
+        <label for="hours">Forecast length</label>
+        <select id="hours">
+          <option value="6">6 h</option><option value="12">12 h</option>
+          <option value="24" selected>24 h</option><option value="48">48 h</option><option value="72">72 h</option>
+        </select>
+        <button id="run" class="primary">Run WRF</button>
+      </div>
+      <div class="progress"><div id="bar"></div></div>
+      <div id="status" class="muted">Idle</div>
+      <details class="log"><summary>Model log</summary><pre id="log"></pre></details>
+    </details>
+  </div>
+</section>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
