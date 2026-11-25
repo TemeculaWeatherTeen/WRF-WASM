@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# Fortran "compiler driver" for build systems that expect a gfortran-like tool.
+#
+#   compile  (-c / -S / -E given)       -> LLVM flang, target wasm32-unknown-emscripten
+#   link     (object/archive inputs)    -> emcc, plus the wasm Fortran runtime
+#   anything else (--version, -v, ...)  -> passed to flang untouched
+#
+# Env:
+#   FLANG_BIN          path to flang(-new)
+#   FLANG_RUNTIME_DIR  directory holding libFortranRuntime.a (built for wasm32)
+#   FLANG_EXTRA_FLAGS  extra flags for compile steps
+#   WASM_LDFLAGS       extra emcc flags, applied only when producing *.exe (wrf.exe, real.exe, ...)
+set -euo pipefail
+: "${FLANG_BIN:?FLANG_BIN not set}" "${FLANG_RUNTIME_DIR:?FLANG_RUNTIME_DIR not set}"
+
+compile=0 have_inputs=0
+for a in "$@"; do
+  case "$a" in
+    -c|-S|-E) compile=1 ;;
+    *.o|*.a|*.obj) have_inputs=1 ;;
+  esac
+done
+
+if [ "$compile" = 1 ]; then
+  # shellcheck disable=SC2086
+  exec "$FLANG_BIN" --target=wasm32-unknown-emscripten ${FLANG_EXTRA_FLAGS:-} "$@"
+fi
+if [ "$have_inputs" = 0 ]; then
+  exec "$FLANG_BIN" "$@"
+fi
+
+# ---- link mode -------------------------------------------------------------
+args=() out="" want_exe=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o)
+      out="$2"; shift 2
+      case "$out" in
+        *.exe) want_exe=1; args+=(-o "${out%.exe}.js") ;;
+        *)     args+=(-o "$out") ;;
+      esac
+      continue ;;
+    # gfortran/flang front-end flags that emcc (clang) would reject at link time
+    -fconvert=*|-ffree-form|-ffixed-form|-ffree-line-length*|-ffixed-line-length*|-frecord-marker*|-fdefault-*|-cpp|-J*|-module|-fallow-*|-std=f*)
+      ;;
+    *) args+=("$1") ;;
+  esac
+  shift
+done
+
+libs=()
+for l in Fortran_main FortranRuntime FortranDecimal; do
+  [ -f "$FLANG_RUNTIME_DIR/lib$l.a" ] && libs+=("$FLANG_RUNTIME_DIR/lib$l.a")
+done
+
+extra=()
+[ "$want_exe" = 1 ] && read -r -a extra <<<"${WASM_LDFLAGS:-}"
+
+emcc "${args[@]}" "${libs[@]}" "${extra[@]}" -lm
+
+# Make wants the file it asked for to exist. The real program is <name>.js + <name>.wasm.
+if [ "$want_exe" = 1 ]; then
+  cp "${out%.exe}.js" "$out"
+fi
