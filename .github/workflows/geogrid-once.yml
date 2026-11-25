@@ -1,0 +1,52 @@
+name: 2 - Build static geography (run once per domain)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  geogrid:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      NATIVE: ${{ github.workspace }}/native
+      GEOG: ${{ github.workspace }}/geog
+      OUT: ${{ github.workspace }}/out
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: System packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gfortran gcc g++ make m4 csh perl libnetcdf-dev libnetcdff-dev netcdf-bin libpng-dev zlib1g-dev bzip2
+
+      - uses: actions/cache@v4
+        with:
+          path: native
+          key: native-${{ hashFiles('config/forecast.env', 'scripts/prep/build-native.sh') }}
+
+      - name: Native WRF + WPS (gfortran)
+        run: bash scripts/prep/build-native.sh
+
+      - name: geogrid
+        run: bash scripts/prep/geogrid.sh
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: geogrid-logs
+          path: |
+            native/WPS/geogrid.log
+            native/WPS/geogrid.out
+            native/WPS/namelist.wps
+            native/WPS/geogrid/GEOGRID.TBL
+          if-no-files-found: ignore
+
+      - name: Publish geo_em.d01.nc
+        run: |
+          gh release view static-geo -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
+            || gh release create static-geo -R "$GITHUB_REPOSITORY" --title "Static geography" --notes "geo_em.d01.nc for the configured domain."
+          gh release upload static-geo out/geo_em.d01.nc -R "$GITHUB_REPOSITORY" --clobber

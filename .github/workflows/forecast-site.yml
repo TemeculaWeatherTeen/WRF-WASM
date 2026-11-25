@@ -1,0 +1,108 @@
+name: 3 - Forecast inputs and deploy site
+
+# Every 6 h, about 3h40m after each GFS cycle (00/06/12/18Z) has been published.
+on:
+  schedule:
+    - cron: "40 3,9,15,21 * * *"
+  workflow_dispatch:
+    inputs:
+      cycle:
+        description: "Force a GFS cycle, YYYYMMDDHH (empty = latest)"
+        required: false
+      skip_smoke:
+        description: "Deploy even if the wasm smoke test fails (useful while debugging)"
+        type: boolean
+        default: false
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - "scripts/prep/**"
+      - "config/forecast.env"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      NATIVE: ${{ github.workspace }}/native
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: System packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gfortran gcc g++ make m4 csh perl libnetcdf-dev libnetcdff-dev netcdf-bin libpng-dev zlib1g-dev bzip2
+          sudo apt-get install -y wgrib2 || echo "::warning::wgrib2 not installable; GFS files will not be cropped"
+
+      - uses: actions/cache@v4
+        with:
+          path: native
+          key: native-${{ hashFiles('config/forecast.env', 'scripts/prep/build-native.sh') }}
+
+      - name: Native WRF + WPS (cached after the first run)
+        run: bash scripts/prep/build-native.sh
+
+      - name: Fetch the wasm build and the static geography
+        run: |
+          mkdir -p wasm static
+          gh release download wasm-latest -R "$GITHUB_REPOSITORY" -p wrf-wasm.tar.gz -D wasm
+          tar xzf wasm/wrf-wasm.tar.gz -C wasm
+          gh release download static-geo -R "$GITHUB_REPOSITORY" -p geo_em.d01.nc -D static
+
+      - name: GFS -> WPS -> real.exe
+        env:
+          GEO: ${{ github.workspace }}/static/geo_em.d01.nc
+          OUT: ${{ github.workspace }}/public
+          CYCLE: ${{ inputs.cycle }}
+        run: bash scripts/prep/make-inputs.sh
+
+      - name: Assemble site
+        run: bash scripts/prep/assemble-site.sh wasm public
+
+      - name: Smoke test - run wrf.wasm for one forecast hour under Node
+        if: ${{ !inputs.skip_smoke }}
+        run: node scripts/wasm/node-smoke.mjs public 1
+
+      - name: Keep pre-processing logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prep-logs
+          path: |
+            native/WPS/ungrib.out
+            native/WPS/metgrid.out
+            native/WPS/namelist.wps
+            native/WRF/run/real.out
+            native/WRF/run/rsl.error.0000
+            native/WRF/run/namelist.input
+          if-no-files-found: ignore
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

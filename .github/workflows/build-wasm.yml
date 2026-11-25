@@ -1,0 +1,78 @@
+name: 1 - Build WRF to WebAssembly
+
+on:
+  workflow_dispatch:
+    inputs:
+      flang_source:
+        description: "Where the wasm-capable flang comes from"
+        type: choice
+        default: micromamba
+        options: [micromamba, docker]
+  push:
+    paths:
+      - "scripts/wasm/**"
+      - "config/forecast.env"
+      - ".github/workflows/build-wasm.yml"
+
+permissions:
+  contents: write   # publish the build as a release asset
+  actions: write    # re-run the site workflow afterwards
+
+jobs:
+  wasm:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 355
+    env:
+      TOOLS: ${{ github.workspace }}/tools
+      PREFIX: ${{ github.workspace }}/wasm-prefix
+      OUT: ${{ github.workspace }}/out
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache/CodeQL || true
+          df -h /
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Toolchain (emsdk + flang)
+        env:
+          FLANG_SOURCE: ${{ inputs.flang_source || 'micromamba' }}
+        run: bash scripts/wasm/get-toolchain.sh
+
+      - name: netCDF-C and netCDF-Fortran (wasm32)
+        run: |
+          mkdir -p build && cd build
+          bash ../scripts/wasm/build-netcdf.sh
+
+      - name: WRF (wasm32)
+        run: |
+          mkdir -p build && cd build
+          bash ../scripts/wasm/build-wrf.sh
+
+      - name: Keep logs when something breaks
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-build-logs
+          path: |
+            build/WRF/compile*.log
+            build/WRF/configure.wrf
+            build/src/build-nc/CMakeFiles/CMakeError.log
+            build/src/build-ncf/CMakeFiles/CMakeError.log
+            build/src/build-ncf/CMakeFiles/CMakeOutput.log
+          if-no-files-found: ignore
+
+      - name: Publish build as a release asset
+        run: |
+          tar czf wrf-wasm.tar.gz -C out .
+          gh release view wasm-latest -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
+            || gh release create wasm-latest -R "$GITHUB_REPOSITORY" --title "WRF wasm build" --notes "Automated output of workflow 1."
+          gh release upload wasm-latest wrf-wasm.tar.gz -R "$GITHUB_REPOSITORY" --clobber
+
+      - name: Rebuild the site with the new binary
+        run: gh workflow run forecast-site.yml -R "$GITHUB_REPOSITORY"
