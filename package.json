@@ -1,0 +1,8 @@
+{
+  "name": "wrf-web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "python3 tests/make_synthetic.py tests/fixtures && node tests/test-derive.mjs && node tests/test-runner.mjs"
+  }
+}
